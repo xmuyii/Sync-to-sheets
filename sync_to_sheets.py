@@ -354,7 +354,8 @@ def update_google_sheet(fusion_weekly_lb, fusion_alltime_lb):
                 weekly_msg += f"{medal}  *{username}* ➔  `{pts:,}` pts\n"
                 
         weekly_msg += f"\n {divider_line}\n"
-        weekly_msg += "🎮 Type *!play* in the Telegram group chat!\n"
+        weekly_msg += "🎮 Type */start* in the Telegram server!\n"
+        weekly_msg += "🛰 https://t.me/checkmateHQ\n"
         weekly_msg += f"⏳ _Updated: Today at {timestamp}_"
         
         # ─── Format Premium All-Time Leaderboard ───
