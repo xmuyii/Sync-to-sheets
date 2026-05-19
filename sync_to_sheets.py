@@ -327,36 +327,63 @@ def update_google_sheet(fusion_weekly_lb, fusion_alltime_lb):
             # Create sheet if it doesn't exist
             sheet = spreadsheet.add_worksheet(title=GOOGLE_SHEET_NAME, rows=200, cols=3)
         
-        divider_line = "━━━━━━━━━━━━━━━━━━━━"
-        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+        # Clean, premium styling lines
+        divider_line = "─────────────────────"
+        # Display clean time format (14:30 WAT / UTC)
+        timestamp = datetime.now(timezone.utc).strftime('%H:%M %Z')
         
-        # ─── Format Fusion Weekly Leaderboard ───
+        # ─── Format Premium Weekly Leaderboard ───
         top_10_weekly = fusion_weekly_lb[:10]
-        weekly_msg = "🔥 *FUSION WEEKLY TOP 10*\n"
-        weekly_msg += divider_line + "\n"
-        for idx, player in enumerate(top_10_weekly, 1):
-            username = player.get("username", "Operative")
-            pts = player.get("points", 0)
-            weekly_msg += f"{idx:02d}. 👤 {username} ➔ {pts:,} pts\n"
-        weekly_msg += divider_line + "\n"
-        weekly_msg += "💬 Type *!play* in the group chat to join!\n"
-        weekly_msg += f"⏰ {timestamp}"
+        weekly_msg = "⚡ *FUSION WEEKLY SCOREBOARD*\n"
+        weekly_msg += f" {divider_line}\n\n"
         
-        # ─── Format Fusion All-Time Leaderboard ───
+        if not top_10_weekly:
+            weekly_msg += "   _No active players yet this week._\n"
+        else:
+            for idx, player in enumerate(top_10_weekly, 1):
+                username = player.get("username", "Operative")
+                # Fallbacks to handle variable score naming variations
+                pts = player.get("points") or player.get("fusion_weekly_points") or 0
+                
+                # Assign premium ranking badges
+                if idx == 1: medal = "🥇"
+                elif idx == 2: medal = "🥈"
+                elif idx == 3: medal = "🥉"
+                else: medal = f"*{idx:02d}.*"
+                
+                weekly_msg += f"{medal}  *{username}* ➔  `{pts:,}` pts\n"
+                
+        weekly_msg += f"\n {divider_line}\n"
+        weekly_msg += "🎮 Type *!play* in the Telegram group chat!\n"
+        weekly_msg += f"⏳ _Updated: Today at {timestamp}_"
+        
+        # ─── Format Premium All-Time Leaderboard ───
         top_10_alltime = fusion_alltime_lb[:10]
-        alltime_msg = "🏆 *FUSION ALL-TIME TOP 10*\n"
-        alltime_msg += divider_line + "\n"
-        for idx, player in enumerate(top_10_alltime, 1):
-            username = player.get("username", "Operative")
-            pts = player.get("points", 0)
-            alltime_msg += f"{idx:02d}. 👤 {username} ➔ {pts:,} pts\n"
-        alltime_msg += divider_line + "\n"
-        alltime_msg += "💬 Type *!play* in the group chat to join!\n"
-        alltime_msg += f"⏰ {timestamp}"
+        alltime_msg = "👑 *FUSION ALL-TIME HALL OF FAME*\n"
+        alltime_msg += f" {divider_line}\n\n"
+        
+        if not top_10_alltime:
+            alltime_msg += "   _No entries logged in the system._\n"
+        else:
+            for idx, player in enumerate(top_10_alltime, 1):
+                username = player.get("username", "Operative")
+                pts = player.get("points") or player.get("fusion_all_time_points") or 0
+                
+                if idx == 1: medal = "🔱"
+                elif idx == 2: medal = "✨"
+                elif idx == 3: medal = "⭐️"
+                else: medal = f"*{idx:02d}.*"
+                
+                alltime_msg += f"{medal}  *{username}* ➔  `{pts:,}` pts\n"
+                
+        alltime_msg += f"\n {divider_line}\n"
+        alltime_msg += "🔗 Global Server: https://t.me/checkmateHQ\n"
+        alltime_msg += f"📡 _Live Synced Session • {timestamp}_"
         
         # ─── WhatsAuto trigger keywords and their responses ───
         whatsauto_layout = [
             ["Trigger", "Response", "Status"],  # Headers
+            ["leaderboard", weekly_msg, "Active"],
             ["weekly", weekly_msg, "Active"],
             ["fusion_weekly", weekly_msg, "Active"],
             ["alltime", alltime_msg, "Active"],
