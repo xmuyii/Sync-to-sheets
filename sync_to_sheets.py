@@ -400,4 +400,23 @@ def main():
         return False
 
 if __name__ == '__main__':
-    main()
+    import time
+    import sys
+    
+    # Check if running as a scheduled worker (Railway) or one-time script
+    if len(sys.argv) > 1 and sys.argv[1] == '--daemon':
+        # Run as daemon: sync every 60 minutes
+        print("\n🔄 Starting sync daemon (runs every 60 minutes)...\n")
+        while True:
+            try:
+                main()
+                time.sleep(3600)  # 60 minutes
+            except KeyboardInterrupt:
+                print("\n✋ Daemon stopped")
+                break
+            except Exception as e:
+                print(f"❌ Daemon error: {e}")
+                time.sleep(60)  # Wait 1 min before retrying
+    else:
+        # Run once and exit
+        main()
