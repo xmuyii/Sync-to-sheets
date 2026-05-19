@@ -184,15 +184,21 @@ def get_gspread_client():
 
 
 def get_fusion_weekly_leaderboard() -> List[Dict]:
-    """Fetch Fusion weekly leaderboard from Supabase."""
+    """Fetch Fusion weekly leaderboard from Supabase.
+    
+    Tries fusion_weekly_points first. If all values are NULL/0 (columns not yet
+    populated), falls back to the shared weekly_points column so the sheet always
+    shows real data.
+    """
     def _fetch():
         from supabase import create_client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
+
+        # --- Try game-specific column first ---
         r = supabase.table('players').select(
-            'user_id, username, fusion_weekly_points, level'
+            'user_id, username, fusion_weekly_points, weekly_points, level'
         ).order('fusion_weekly_points', desc=True).limit(10).execute()
-        
+
         results = []
         for p in (r.data or []):
             pts = int(p.get('fusion_weekly_points') or 0)
@@ -203,10 +209,34 @@ def get_fusion_weekly_leaderboard() -> List[Dict]:
                     'user_id': p['user_id'],
                     'points': pts,
                     'level': p.get('level', 1),
+                    'source': 'fusion_weekly_points',
                 })
-        
+
+        if results:
+            logger.info(f"✅ Got {len(results)} players from fusion_weekly_points")
+            return results
+
+        # --- Fallback: shared weekly_points ---
+        logger.warning("⚠️  fusion_weekly_points empty or all NULL — falling back to weekly_points")
+        r2 = supabase.table('players').select(
+            'user_id, username, weekly_points, level'
+        ).gt('weekly_points', 0).order('weekly_points', desc=True).limit(10).execute()
+
+        for p in (r2.data or []):
+            pts = int(p.get('weekly_points') or 0)
+            if pts > 0:
+                results.append({
+                    'rank': len(results) + 1,
+                    'username': p.get('username', 'Unknown'),
+                    'user_id': p['user_id'],
+                    'points': pts,
+                    'level': p.get('level', 1),
+                    'source': 'weekly_points_fallback',
+                })
+
+        logger.info(f"✅ Fallback returned {len(results)} players from weekly_points")
         return results
-    
+
     try:
         return retry_operation(_fetch, max_retries=3)
     except Exception as e:
@@ -216,15 +246,20 @@ def get_fusion_weekly_leaderboard() -> List[Dict]:
 
 
 def get_fusion_alltime_leaderboard() -> List[Dict]:
-    """Fetch Fusion all-time leaderboard from Supabase."""
+    """Fetch Fusion all-time leaderboard from Supabase.
+
+    Tries fusion_all_time_points first. Falls back to all_time_points when the
+    game-specific column is empty (columns not yet populated via award_word_score).
+    """
     def _fetch():
         from supabase import create_client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-        
+
+        # --- Try game-specific column first ---
         r = supabase.table('players').select(
-            'user_id, username, fusion_all_time_points, level'
+            'user_id, username, fusion_all_time_points, all_time_points, level'
         ).order('fusion_all_time_points', desc=True).limit(10).execute()
-        
+
         results = []
         for p in (r.data or []):
             pts = int(p.get('fusion_all_time_points') or 0)
@@ -235,10 +270,34 @@ def get_fusion_alltime_leaderboard() -> List[Dict]:
                     'user_id': p['user_id'],
                     'points': pts,
                     'level': p.get('level', 1),
+                    'source': 'fusion_all_time_points',
                 })
-        
+
+        if results:
+            logger.info(f"Got {len(results)} players from fusion_all_time_points")
+            return results
+
+        # --- Fallback: shared all_time_points ---
+        logger.warning("fusion_all_time_points empty — falling back to all_time_points")
+        r2 = supabase.table('players').select(
+            'user_id, username, all_time_points, level'
+        ).gt('all_time_points', 0).order('all_time_points', desc=True).limit(10).execute()
+
+        for p in (r2.data or []):
+            pts = int(p.get('all_time_points') or 0)
+            if pts > 0:
+                results.append({
+                    'rank': len(results) + 1,
+                    'username': p.get('username', 'Unknown'),
+                    'user_id': p['user_id'],
+                    'points': pts,
+                    'level': p.get('level', 1),
+                    'source': 'all_time_fallback',
+                })
+
+        logger.info(f"Fallback returned {len(results)} players from all_time_points")
         return results
-    
+
     try:
         return retry_operation(_fetch, max_retries=3)
     except Exception as e:
