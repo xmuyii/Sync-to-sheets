@@ -222,12 +222,12 @@ def get_fusion_alltime_leaderboard() -> List[Dict]:
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         
         r = supabase.table('players').select(
-            'user_id, username, fusion_alltime_points, level'
-        ).order('fusion_alltime_points', desc=True).limit(10).execute()
+            'user_id, username, fusion_all_time_points, level'
+        ).order('fusion_all_time_points', desc=True).limit(10).execute()
         
         results = []
         for p in (r.data or []):
-            pts = int(p.get('fusion_alltime_points') or 0)
+            pts = int(p.get('fusion_all_time_points') or 0)
             if pts > 0:
                 results.append({
                     'rank': len(results) + 1,
@@ -370,16 +370,16 @@ def main():
         print(f"   Fusion All-Time: {len(fusion_alltime)} players")
         logger.info(f"Found {len(fusion_weekly)} weekly players, {len(fusion_alltime)} all-time players")
         
-        # Show top 5 weekly
+        # Show top 10 weekly
         if fusion_weekly:
-            print("\n   Top 5 Weekly:")
-            for p in fusion_weekly[:5]:
+            print("\n   Top 10 Weekly:")
+            for p in fusion_weekly[:10]:
                 print(f"      #{p['rank']} {p['username']:20} {p['points']:>6} pts")
         
-        # Show top 5 all-time
+        # Show top 10 all-time
         if fusion_alltime:
-            print("\n   Top 5 All-Time:")
-            for p in fusion_alltime[:5]:
+            print("\n   Top 10 All-Time:")
+            for p in fusion_alltime[:10]:
                 print(f"      #{p['rank']} {p['username']:20} {p['points']:>6} pts")
         
         # Update Google Sheet
