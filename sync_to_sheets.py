@@ -183,66 +183,77 @@ def get_gspread_client():
         sys.exit(1)
 
 
-def get_weekly_leaderboard() -> List[Dict]:
-    """Fetch weekly leaderboard from Supabase with retry logic.
-    
-    Strategy:
-    1. Try to get players with weekly_points > 0
-    2. If none found, fall back to all-time leaderboard ordered by points
-    """
+def get_fusion_weekly_leaderboard() -> List[Dict]:
+    """Fetch Fusion weekly leaderboard from Supabase."""
     def _fetch():
         from supabase import create_client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         
-        # Fetch all players with weekly_points, ordered by highest score
         r = supabase.table('players').select(
-            'user_id, username, weekly_points, points'
-        ).order('weekly_points', desc=True).limit(100).execute()
+            'user_id, username, fusion_weekly_points, level'
+        ).order('fusion_weekly_points', desc=True).limit(10).execute()
         
         results = []
         for p in (r.data or []):
-            pts = int(p.get('weekly_points') or 0)
-            
-            # Include players with weekly_points > 0 (current week active players)
+            pts = int(p.get('fusion_weekly_points') or 0)
             if pts > 0:
                 results.append({
                     'rank': len(results) + 1,
                     'username': p.get('username', 'Unknown'),
                     'user_id': p['user_id'],
                     'points': pts,
+                    'level': p.get('level', 1),
                 })
-        
-        # If no weekly data, fall back to all-time leaderboard
-        if not results:
-            print("[LEADERBOARD] No weekly_points > 0 found, falling back to all-time...")
-            r = supabase.table('players').select(
-                'user_id, username, points'
-            ).order('points', desc=True).limit(10).execute()
-            
-            for p in (r.data or []):
-                pts = int(p.get('points') or 0)
-                if pts > 0:
-                    results.append({
-                        'rank': len(results) + 1,
-                        'username': p.get('username', 'Unknown'),
-                        'user_id': p['user_id'],
-                        'points': pts,
-                    })
         
         return results
     
     try:
         return retry_operation(_fetch, max_retries=3)
     except Exception as e:
-        logger.error(f"❌ Error fetching leaderboard from Supabase: {e}", exc_info=True)
-        print(f"❌ Error fetching leaderboard from Supabase: {e}")
+        logger.error(f"❌ Error fetching Fusion weekly leaderboard: {e}")
+        print(f"❌ Error fetching Fusion weekly leaderboard: {e}")
         return []
 
 
-def update_google_sheet(leaderboard_data):
+def get_fusion_alltime_leaderboard() -> List[Dict]:
+    """Fetch Fusion all-time leaderboard from Supabase."""
+    def _fetch():
+        from supabase import create_client
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        
+        r = supabase.table('players').select(
+            'user_id, username, fusion_alltime_points, level'
+        ).order('fusion_alltime_points', desc=True).limit(10).execute()
+        
+        results = []
+        for p in (r.data or []):
+            pts = int(p.get('fusion_alltime_points') or 0)
+            if pts > 0:
+                results.append({
+                    'rank': len(results) + 1,
+                    'username': p.get('username', 'Unknown'),
+                    'user_id': p['user_id'],
+                    'points': pts,
+                    'level': p.get('level', 1),
+                })
+        
+        return results
+    
+    try:
+        return retry_operation(_fetch, max_retries=3)
+    except Exception as e:
+        logger.error(f"❌ Error fetching Fusion all-time leaderboard: {e}")
+        print(f"❌ Error fetching Fusion all-time leaderboard: {e}")
+        return []
+
+
+def update_google_sheet(fusion_weekly_lb, fusion_alltime_lb):
     """
-    Updates Google Sheet with leaderboard data.
-    WhatsAuto will monitor this sheet and send WhatsApp messages based on its contents.
+    Updates Google Sheet with both Fusion weekly and all-time leaderboards.
+    WhatsAuto will monitor this sheet and send WhatsApp messages based on trigger keywords.
+    
+    - "weekly" → Fusion Weekly leaderboard
+    - "alltime" or "rank" → Fusion All-Time leaderboard
     """
     try:
         # Initialize gspread client
@@ -255,52 +266,75 @@ def update_google_sheet(leaderboard_data):
             sheet = spreadsheet.worksheet(GOOGLE_SHEET_NAME)
         except gspread.exceptions.WorksheetNotFound:
             # Create sheet if it doesn't exist
-            sheet = spreadsheet.add_worksheet(title=GOOGLE_SHEET_NAME, rows=100, cols=3)
+            sheet = spreadsheet.add_worksheet(title=GOOGLE_SHEET_NAME, rows=200, cols=3)
         
-        # Format the leaderboard for WhatsAuto
-        top_10_weekly = leaderboard_data[:10]
         divider_line = "━━━━━━━━━━━━━━━━━━━━"
+        timestamp = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
         
-        # Build the message that WhatsAuto will read and send to WhatsApp
-        weekly_msg = "📊 *CHECKMATE HQ LIVE WEEKLY TOP 10*\n"
+        # ─── Format Fusion Weekly Leaderboard ───
+        top_10_weekly = fusion_weekly_lb[:10]
+        weekly_msg = "🔥 *FUSION WEEKLY TOP 10*\n"
         weekly_msg += divider_line + "\n"
         for idx, player in enumerate(top_10_weekly, 1):
             username = player.get("username", "Operative")
             pts = player.get("points", 0)
             weekly_msg += f"{idx:02d}. 👤 {username} ➔ {pts:,} pts\n"
         weekly_msg += divider_line + "\n"
-        weekly_msg += "💬 Type *!play* in the group chat to claim your spot!\n"
-        weekly_msg += f"⏰ Updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        weekly_msg += "💬 Type *!play* in the group chat to join!\n"
+        weekly_msg += f"⏰ {timestamp}"
         
-        # WhatsAuto trigger keywords and their responses
+        # ─── Format Fusion All-Time Leaderboard ───
+        top_10_alltime = fusion_alltime_lb[:10]
+        alltime_msg = "🏆 *FUSION ALL-TIME TOP 10*\n"
+        alltime_msg += divider_line + "\n"
+        for idx, player in enumerate(top_10_alltime, 1):
+            username = player.get("username", "Operative")
+            pts = player.get("points", 0)
+            alltime_msg += f"{idx:02d}. 👤 {username} ➔ {pts:,} pts\n"
+        alltime_msg += divider_line + "\n"
+        alltime_msg += "💬 Type *!play* in the group chat to join!\n"
+        alltime_msg += f"⏰ {timestamp}"
+        
+        # ─── WhatsAuto trigger keywords and their responses ───
         whatsauto_layout = [
             ["Trigger", "Response", "Status"],  # Headers
-            ["leaderboard", weekly_msg, "Active"],
             ["weekly", weekly_msg, "Active"],
-            ["scores", weekly_msg, "Active"],
-            ["rank", weekly_msg, "Active"],
+            ["fusion_weekly", weekly_msg, "Active"],
+            ["alltime", alltime_msg, "Active"],
+            ["rank", alltime_msg, "Active"],
+            ["fusion_alltime", alltime_msg, "Active"],
         ]
         
         # Clear and update the sheet
         sheet.clear()
         sheet.update('A1', whatsauto_layout)
         
-        # Also add raw data rows for reference
-        sheet.append_row(["", "", ""])  # Blank row separator
-        sheet.append_row(["Raw Leaderboard Data", "", ""])
+        # ─── Add raw Fusion Weekly data for reference ───
+        sheet.append_row(["", "", ""])  # Blank separator
+        sheet.append_row(["FUSION WEEKLY - Raw Data", "", ""])
         sheet.append_row(["Rank", "Username", "Points"])
-        
-        for idx, player in enumerate(leaderboard_data[:20], 1):
+        for idx, player in enumerate(fusion_weekly_lb[:15], 1):
             sheet.append_row([
                 str(idx),
                 player.get("username", "Unknown"),
                 str(player.get("points", 0))
             ])
         
-        logger.info(f"✅ Google Sheet updated successfully with {len(leaderboard_data)} players")
+        # ─── Add raw Fusion All-Time data for reference ───
+        sheet.append_row(["", "", ""])  # Blank separator
+        sheet.append_row(["FUSION ALL-TIME - Raw Data", "", ""])
+        sheet.append_row(["Rank", "Username", "Points"])
+        for idx, player in enumerate(fusion_alltime_lb[:15], 1):
+            sheet.append_row([
+                str(idx),
+                player.get("username", "Unknown"),
+                str(player.get("points", 0))
+            ])
+        
+        logger.info(f"✅ Google Sheet updated: {len(fusion_weekly_lb)} weekly + {len(fusion_alltime_lb)} all-time players")
         print(f"✅ Google Sheet updated successfully!")
-        print(f"   Sheet: {GOOGLE_SHEET_NAME}")
-        print(f"   Players synced: {len(leaderboard_data)}")
+        print(f"   Fusion Weekly: {len(fusion_weekly_lb)} players")
+        print(f"   Fusion All-Time: {len(fusion_alltime_lb)} players")
         return True
         
     except Exception as e:
@@ -311,7 +345,7 @@ def update_google_sheet(leaderboard_data):
 def main():
     """Main sync function."""
     try:
-        header = "🔄 SYNCING SUPABASE WEEKLY POINTS TO GOOGLE SHEET"
+        header = "🔄 SYNCING SUPABASE FUSION LEADERBOARDS TO GOOGLE SHEET"
         print("\n" + "="*70)
         print(header)
         print("="*70 + "\n")
@@ -320,29 +354,38 @@ def main():
         # Validate config
         validate_config()
         
-        # Fetch leaderboard
-        print("\n📊 Fetching leaderboard from Supabase...")
-        logger.info("Fetching leaderboard from Supabase...")
-        leaderboard = get_weekly_leaderboard()
+        # Fetch both Fusion leaderboards
+        print("\n📊 Fetching Fusion leaderboards from Supabase...")
+        logger.info("Fetching Fusion leaderboards from Supabase...")
         
-        if not leaderboard:
+        fusion_weekly = get_fusion_weekly_leaderboard()
+        fusion_alltime = get_fusion_alltime_leaderboard()
+        
+        if not fusion_weekly and not fusion_alltime:
             logger.warning("⚠️  No leaderboard data found!")
             print("⚠️  No leaderboard data found!")
             return False
         
-        msg = f"Found {len(leaderboard)} players"
-        print(f"   {msg}")
-        logger.info(msg)
+        print(f"\n   Fusion Weekly: {len(fusion_weekly)} players")
+        print(f"   Fusion All-Time: {len(fusion_alltime)} players")
+        logger.info(f"Found {len(fusion_weekly)} weekly players, {len(fusion_alltime)} all-time players")
         
-        # Show top 5
-        print("\n   Top 5:")
-        for p in leaderboard[:5]:
-            print(f"      #{p['rank']} {p['username']:20} {p['points']:>6} pts")
+        # Show top 5 weekly
+        if fusion_weekly:
+            print("\n   Top 5 Weekly:")
+            for p in fusion_weekly[:5]:
+                print(f"      #{p['rank']} {p['username']:20} {p['points']:>6} pts")
+        
+        # Show top 5 all-time
+        if fusion_alltime:
+            print("\n   Top 5 All-Time:")
+            for p in fusion_alltime[:5]:
+                print(f"      #{p['rank']} {p['username']:20} {p['points']:>6} pts")
         
         # Update Google Sheet
         print("\n📝 Updating Google Sheet...")
         logger.info("Updating Google Sheet...")
-        update_google_sheet(leaderboard)
+        update_google_sheet(fusion_weekly, fusion_alltime)
         
         print("\n" + "="*70)
         print("✅ SYNC COMPLETE!")
