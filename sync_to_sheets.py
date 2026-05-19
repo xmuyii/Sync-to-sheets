@@ -40,7 +40,7 @@ import os
 import sys
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict
 import json
 
@@ -184,36 +184,50 @@ def get_gspread_client():
 
 
 def get_weekly_leaderboard() -> List[Dict]:
-    """Fetch weekly leaderboard from Supabase with retry logic."""
+    """Fetch weekly leaderboard from Supabase with retry logic.
+    
+    Strategy:
+    1. Try to get players with weekly_points > 0
+    2. If none found, fall back to all-time leaderboard ordered by points
+    """
     def _fetch():
         from supabase import create_client
         supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
         
-        # Get current week key (ISO date of the Sunday that starts this week)
-        today = datetime.utcnow()
-        days_since_sunday = (today.weekday() + 1) % 7
-        sunday = today - timedelta(days=days_since_sunday)
-        this_week = sunday.date().isoformat()
-        
-        # Fetch all players with weekly_points (with timeout)
+        # Fetch all players with weekly_points, ordered by highest score
         r = supabase.table('players').select(
-            'user_id, username, weekly_points, week_start'
+            'user_id, username, weekly_points, points'
         ).order('weekly_points', desc=True).limit(100).execute()
         
         results = []
         for p in (r.data or []):
             pts = int(p.get('weekly_points') or 0)
-            player_week = p.get('week_start', '')
-            player_week_date = player_week.split('T')[0] if player_week else ''
             
-            # Only include if their week matches current week and points > 0
-            if player_week_date == this_week and pts > 0:
+            # Include players with weekly_points > 0 (current week active players)
+            if pts > 0:
                 results.append({
                     'rank': len(results) + 1,
                     'username': p.get('username', 'Unknown'),
                     'user_id': p['user_id'],
                     'points': pts,
                 })
+        
+        # If no weekly data, fall back to all-time leaderboard
+        if not results:
+            print("[LEADERBOARD] No weekly_points > 0 found, falling back to all-time...")
+            r = supabase.table('players').select(
+                'user_id, username, points'
+            ).order('points', desc=True).limit(10).execute()
+            
+            for p in (r.data or []):
+                pts = int(p.get('points') or 0)
+                if pts > 0:
+                    results.append({
+                        'rank': len(results) + 1,
+                        'username': p.get('username', 'Unknown'),
+                        'user_id': p['user_id'],
+                        'points': pts,
+                    })
         
         return results
     
@@ -256,7 +270,7 @@ def update_google_sheet(leaderboard_data):
             weekly_msg += f"{idx:02d}. 👤 {username} ➔ {pts:,} pts\n"
         weekly_msg += divider_line + "\n"
         weekly_msg += "💬 Type *!play* in the group chat to claim your spot!\n"
-        weekly_msg += f"⏰ Updated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}"
+        weekly_msg += f"⏰ Updated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
         
         # WhatsAuto trigger keywords and their responses
         whatsauto_layout = [
