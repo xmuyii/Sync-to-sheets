@@ -76,6 +76,42 @@ logger = logging.getLogger(__name__)
 
 # ── Validation ─────────────────────────────────────────────────────────────
 
+def get_google_credentials():
+    """Load Google credentials from environment variable or file.
+    
+    Priority:
+    1. GOOGLE_CREDENTIALS_JSON env var (for Railway)
+    2. GOOGLE_CREDENTIALS_PATH file (for local development)
+    """
+    # Try environment variable first (Railway deployment)
+    creds_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    if creds_json_str:
+        try:
+            creds_dict = json.loads(creds_json_str)
+            logger.info("✅ Loaded credentials from GOOGLE_CREDENTIALS_JSON env variable")
+            return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        except Exception as e:
+            logger.error(f"❌ Failed to parse GOOGLE_CREDENTIALS_JSON: {e}")
+            raise
+    
+    # Fall back to file (local development)
+    if os.path.exists(GOOGLE_CREDENTIALS_PATH):
+        try:
+            logger.info(f"✅ Loaded credentials from file: {GOOGLE_CREDENTIALS_PATH}")
+            return Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
+        except Exception as e:
+            logger.error(f"❌ Failed to load credentials from file: {e}")
+            raise
+    
+    # Neither found
+    raise FileNotFoundError(
+        f"Google credentials not found!\n"
+        f"  - Env var GOOGLE_CREDENTIALS_JSON not set\n"
+        f"  - File {GOOGLE_CREDENTIALS_PATH} not found\n"
+        f"Set one of these to authenticate with Google Sheets."
+    )
+
+
 def validate_config():
     """Check if all required config is present."""
     errors = []
@@ -86,8 +122,16 @@ def validate_config():
         errors.append("❌ SUPABASE_KEY not configured")
     if not GOOGLE_SHEET_ID:
         errors.append("❌ GOOGLE_SHEET_ID not configured")
-    if not os.path.exists(GOOGLE_CREDENTIALS_PATH):
-        errors.append(f"❌ Google credentials file not found: {GOOGLE_CREDENTIALS_PATH}")
+    
+    # Check for credentials (env var or file)
+    has_creds_env = os.getenv('GOOGLE_CREDENTIALS_JSON') is not None
+    has_creds_file = os.path.exists(GOOGLE_CREDENTIALS_PATH)
+    if not has_creds_env and not has_creds_file:
+        errors.append(
+            f"❌ Google credentials not found!\n"
+            f"   Set GOOGLE_CREDENTIALS_JSON env var (Railway) OR\n"
+            f"   Place file at {GOOGLE_CREDENTIALS_PATH} (local)"
+        )
     
     if errors:
         msg = "\n".join(errors)
@@ -131,11 +175,11 @@ def get_credentials():
 def get_gspread_client():
     """Authenticate with Google Sheets using gspread."""
     try:
-        creds = get_credentials()
+        creds = get_google_credentials()
         return gspread.authorize(creds)
     except Exception as e:
-        logger.error(f"❌ Could not authenticate with Google Sheets: {e}")
-        print(f"❌ Could not authenticate with Google Sheets: {e}")
+        logger.error(f"Could not authenticate with Google Sheets: {e}")
+        print(f"Could not authenticate with Google Sheets: {e}")
         sys.exit(1)
 
 
