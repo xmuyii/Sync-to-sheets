@@ -42,6 +42,7 @@ import logging
 import time
 from datetime import datetime, timedelta
 from typing import List, Dict
+import json
 
 from dotenv import load_dotenv
 import gspread
@@ -112,10 +113,25 @@ def retry_operation(func, max_retries=3, backoff_factor=2):
                 raise
 
 
+def get_credentials():
+    """Load Google credentials from environment variable or file."""
+    creds_json_str = os.getenv('GOOGLE_CREDENTIALS_JSON')
+    
+    if creds_json_str:
+        # Load from environment variable
+        creds_dict = json.loads(creds_json_str)
+        return Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    elif os.path.exists(GOOGLE_CREDENTIALS_PATH):
+        # Fall back to file if it exists
+        return Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
+    else:
+        raise FileNotFoundError(f"Google credentials not found in env var or {GOOGLE_CREDENTIALS_PATH}")
+
+
 def get_gspread_client():
     """Authenticate with Google Sheets using gspread."""
     try:
-        creds = Credentials.from_service_account_file(GOOGLE_CREDENTIALS_PATH, scopes=SCOPES)
+        creds = get_credentials()
         return gspread.authorize(creds)
     except Exception as e:
         logger.error(f"❌ Could not authenticate with Google Sheets: {e}")
