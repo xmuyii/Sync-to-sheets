@@ -1,0 +1,2 @@
+[deploy]
+startCommand = "python sync_to_sheets.py"
